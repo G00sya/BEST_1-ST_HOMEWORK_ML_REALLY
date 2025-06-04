@@ -4,7 +4,7 @@ install:
 	poetry install
 
 test:
-	poetry run pytest tests
+	poetry run pytest src/test
 
 lint:
 	poetry run pre-commit run --show-diff-on-failure --color=always --all-files
