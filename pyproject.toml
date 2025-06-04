@@ -1,19 +1,32 @@
-[project]
+[tool.poetry]
 name = "best-ml-homework"
 version = "0.1.0"
 description = "My first ML homework. Without skat."
-authors = [
-    {name = "Ishchenko Igor",email = "igoryan11060@gmail.com"}
-]
+authors = ["Ishchenko Igor"]
 readme = "README.md"
-requires-python = ">=3.12"
-dependencies = [
-]
 
+[tool.poetry.dependencies]
+python = "^3.12"
+numpy = "^1.18.5"
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^4.1.0"
+pytest = "^8.3.5"
+pytest-cov = "^6.0.0"
+
+[[tool.poetry.packages]]
+include = "src"
+from = "."
+
+[tool.sort.config]
+auto = true
+case-sensitive = false
+sort-python = false
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.poetry.group.dev.dependencies]
-pre-commit = "^4.2.0"
+[tool.pytest.ini_options]
+pythonpath = "src"
+addopts = "--cov=src --cov-report=term-missing --cov-report=html --import-mode=importlib"
