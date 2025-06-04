@@ -6,7 +6,7 @@ from torchvision.datasets import CIFAR10
 from torchvision.models import resnet18
 from tqdm import tqdm, trange
 
-from hparams import config
+from src.data.hparams import config
 
 wandb.init(config=config, project="effdl_example", name="baseline")
 

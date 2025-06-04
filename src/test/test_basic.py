@@ -1,7 +1,7 @@
 import torch
 import pytest
 
-from train import compute_accuracy
+from src.model.train import compute_accuracy
 
 
 def test_arange_elems():
