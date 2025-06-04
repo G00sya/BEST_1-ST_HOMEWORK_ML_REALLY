@@ -1,0 +1,16 @@
+[project]
+name = "best-ml-homework"
+version = "0.1.0"
+description = "My first ML homework. Without skat."
+authors = [
+    {name = "Ishchenko Igor",email = "igoryan11060@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
