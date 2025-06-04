@@ -1,0 +1,42 @@
+# Скомпилированный код
+*.o
+*.exe
+*.pyc
+
+# Папки зависимостей
+node_modules/
+venv/
+
+# Файлы конфигурации
+config.ini
+.env
+
+# Логи
+*.log
+logs/
+
+# Системные файлы macOS
+.DS_Store
+
+# PyCharm папки
+.idea/
+
+# Unit test / coverage reports
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+*.csv
+/embeddings
+/wandb/
+/src/wandb
+/model
+**/data/images**

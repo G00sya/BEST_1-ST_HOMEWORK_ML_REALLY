@@ -10,19 +10,23 @@ from hparams import config
 
 
 def main(args):
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-    ])
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)),
+        ]
+    )
 
-    test_dataset = CIFAR10(root='CIFAR10/test',
-                           train=False,
-                           transform=transform,
-                           download=False,
-                           )
+    test_dataset = CIFAR10(
+        root="CIFAR10/test",
+        train=False,
+        transform=transform,
+        download=False,
+    )
 
-    test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
-                                              batch_size=config["batch_size"])
+    test_loader = torch.utils.data.DataLoader(
+        dataset=test_dataset, batch_size=config["batch_size"]
+    )
 
     device = torch.device("cuda")
 
@@ -48,7 +52,7 @@ def main(args):
         print("\n", file=f)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = ArgumentParser()
     args = parser.parse_args()
     main(args)
