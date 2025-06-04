@@ -1,72 +1,86 @@
+import os
+
 import pytest
 import torch
-import os
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from unittest.mock import MagicMock, patch
 from src.model.train import get_model, train_epoch, evaluate, compute_accuracy, main
 from src.data.hparams import config
+from src.data.prepare_data import prepare_cifar10
+import torchvision.datasets as datasets
 
 
 @pytest.fixture(scope="module")
-def prepared_data(tmp_path_factory):
-    data_dir = tmp_path_factory.mktemp("data")
-    os.makedirs(data_dir / "train", exist_ok=True)
-    os.makedirs(data_dir / "test", exist_ok=True)
-    return data_dir
+def temp_dir():
+    test_dir = "./test_data"
+    if os.path.exists(test_dir):
+        for root, dirs, files in os.walk(test_dir, topdown=False):
+            for name in files:
+                os.remove(os.path.join(root, name))
+            for name in dirs:
+                os.rmdir(os.path.join(root, name))
+        os.rmdir(test_dir)
+
+    yield test_dir
+
+    # Cleanup после всех тестов
+    if os.path.exists(test_dir):
+        for root, dirs, files in os.walk(test_dir, topdown=False):
+            for name in files:
+                os.remove(os.path.join(root, name))
+            for name in dirs:
+                os.rmdir(os.path.join(root, name))
+        os.rmdir(test_dir)
 
 
-@pytest.fixture(scope="module")
-def sample_cifar10_data():
-    return torch.rand(3, 32, 32)
+def test_directories_creation(temp_dir):
+    """Проверяем создание директорий"""
+    with patch.object(datasets.CIFAR10, "__init__", return_value=None):
+        prepare_cifar10(data_dir=temp_dir)
+
+    assert os.path.exists(os.path.join(temp_dir, "train"))
+    assert os.path.exists(os.path.join(temp_dir, "test"))
+
+
+def test_download_called(temp_dir):
+    """Проверяем вызов загрузки при download=True"""
+    with patch.object(
+        datasets.CIFAR10, "__init__", return_value=None
+    ) as mock_init, patch.object(datasets.CIFAR10, "download") as mock_download:
+        prepare_cifar10(data_dir=temp_dir, download=True)
+
+        # Проверяем что методы были вызваны
+        assert mock_init.call_count == 2  # Для train и test
+        assert mock_download.call_count == 2  # Проверяем вызов download
+
+
+def test_no_download(temp_dir):
+    """Проверяем пропуск загрузки при download=False"""
+    with patch.object(datasets.CIFAR10, "__init__", return_value=None), patch.object(
+        datasets.CIFAR10, "download"
+    ) as mock_download:
+        prepare_cifar10(data_dir=temp_dir, download=False)
+        assert not mock_download.called
 
 
 @pytest.fixture
 def train_dataset():
-    class MockDataset:
-        def __init__(self):
-            self.data = torch.rand(100, 3, 32, 32)
-            self.targets = torch.randint(0, 10, (100,))
-
-        def __len__(self):
-            return len(self.data)
-
-        def __getitem__(self, idx):
-            return self.data[idx], self.targets[idx]
-
-    return MockDataset()
-
-
-def test_data_directories_created(prepared_data):
-    assert os.path.exists(prepared_data / "train")
-    assert os.path.exists(prepared_data / "test")
-
-
-def test_normalization():
-    """Тест что нормализация правильно преобразует данные"""
-    mock_data = torch.rand(3, 32, 32)
-
-    mean = torch.tensor([0.4914, 0.4822, 0.4465]).view(3, 1, 1)
-    std = torch.tensor([0.247, 0.243, 0.261]).view(3, 1, 1)
-
-    normalized = (mock_data - mean) / std
-
-    manual_normalized = (mock_data - mean) / std
-    assert torch.allclose(normalized, manual_normalized)
+    # Создаем фиктивные данные для тестирования
+    images = torch.randn(100, 3, 32, 32)  # 100 примеров, 3 канала, 32x32
+    labels = torch.randint(0, 10, (100,))  # 100 меток от 0 до 9
+    return TensorDataset(images, labels)
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_train_on_one_batch(device, train_dataset):
-    # Проверяем доступность CUDA
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
     device = torch.device(device)
 
-    # Используем функцию get_model из train.py
     model = get_model(config).to(device)
 
-    # Создаем DataLoader с одним батчем
     train_loader = DataLoader(
         train_dataset, batch_size=config["batch_size"], shuffle=True
     )
@@ -74,7 +88,6 @@ def test_train_on_one_batch(device, train_dataset):
         train_dataset, batch_size=config["batch_size"]
     )  # Для evaluate
 
-    # Критерий и оптимизатор (как в train.py)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -82,7 +95,6 @@ def test_train_on_one_batch(device, train_dataset):
         weight_decay=config["weight_decay"],
     )
 
-    # 1. Тестируем compute_accuracy
     with torch.no_grad():
         images, labels = next(iter(train_loader))
         images, labels = images.to(device), labels.to(device)
@@ -91,16 +103,11 @@ def test_train_on_one_batch(device, train_dataset):
         accuracy = compute_accuracy(preds, labels)
         assert 0 <= accuracy <= 1
 
-    # 2. Тестируем train_epoch на одном батче
-    # Сохраняем начальные веса для проверки обновления
     initial_weights = {name: param.clone() for name, param in model.named_parameters()}
 
-    # Используем функцию train_epoch из train.py
-    # Но модифицируем train_loader чтобы он содержал только один батч
     single_batch_loader = [(next(iter(train_loader)))]  # Создаем loader с одним батчем
     loss = train_epoch(model, single_batch_loader, criterion, optimizer, device)
 
-    # Проверяем что loss вычислен и веса изменились
     assert isinstance(loss, float)
     assert loss > 0
     for name, param in model.named_parameters():
@@ -108,8 +115,6 @@ def test_train_on_one_batch(device, train_dataset):
             param, initial_weights[name]
         ), f"Weights for {name} did not change!"
 
-    # 3. Тестируем evaluate
-    # Используем функцию evaluate из train.py
     accuracy = evaluate(model, test_loader, device)
     assert 0 <= accuracy <= 1
 
