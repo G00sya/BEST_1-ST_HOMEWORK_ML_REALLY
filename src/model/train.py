@@ -1,108 +1,152 @@
+import argparse
+from pathlib import Path
+import sys
+import os
+
+# Добавляем корень проекта в PYTHONPATH
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import torchvision.transforms as transforms
+import torchvision.datasets as datasets
+import torchvision.models as models
 import wandb
-from torchvision.datasets import CIFAR10
-from torchvision.models import resnet18
 from tqdm import tqdm, trange
-
 from src.data.hparams import config
 
-wandb.init(config=config, project="effdl_example", name="baseline")
+
+def compute_accuracy(preds: torch.Tensor, targets: torch.Tensor) -> float:
+    """Compute accuracy given predictions and targets."""
+    return (targets == preds).float().mean().item()
 
 
-def compute_accuracy(preds, targets):
-    result = (targets == preds).float().mean()
-    return result
-
-
-def main():
+def get_datasets(data_dir: str):
+    """Create and return train and test datasets."""
     transform = transforms.Compose(
         [
             transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)),
-            # transforms.Resize((224, 224)),
         ]
     )
 
-    train_dataset = CIFAR10(
-        root="CIFAR10/train",
+    # Создаем директории, если их нет
+    os.makedirs(f"{data_dir}/train", exist_ok=True)
+    os.makedirs(f"{data_dir}/test", exist_ok=True)
+
+    train_dataset = datasets.CIFAR10(
+        root=data_dir,
         train=True,
         transform=transform,
-        download=False,
+        download=True,  # Автоматически скачивает, если нет данных
     )
 
-    test_dataset = CIFAR10(
-        root="CIFAR10/test",
-        train=False,
-        transform=transform,
-        download=False,
+    test_dataset = datasets.CIFAR10(
+        root=data_dir, train=False, transform=transform, download=True
     )
 
-    train_loader = torch.utils.data.DataLoader(
-        dataset=train_dataset, batch_size=config["batch_size"], shuffle=True
-    )
+    return train_dataset, test_dataset
 
-    test_loader = torch.utils.data.DataLoader(
-        dataset=test_dataset, batch_size=config["batch_size"]
-    )
 
-    device = torch.device("cuda")
-
-    model = resnet18(
+def get_model(config: dict) -> nn.Module:
+    """Initialize and return the model."""
+    model = models.resnet18(
         pretrained=False,
         num_classes=10,
         zero_init_residual=config["zero_init_residual"],
     )
-    model.to(device)
+    return model
+
+
+def train_epoch(model, train_loader, criterion, optimizer, device):
+    """Train model for one epoch."""
+    model.train()
+    total_loss = 0.0
+
+    for images, labels in tqdm(train_loader, desc="Training"):
+        images, labels = images.to(device), labels.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    return total_loss / len(train_loader)
+
+
+def evaluate(model, test_loader, device):
+    """Evaluate model on test set."""
+    model.eval()
+    all_preds, all_labels = [], []
+
+    with torch.no_grad():
+        for images, labels in tqdm(test_loader, desc="Evaluating"):
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            preds = torch.argmax(outputs, dim=1)
+
+            all_preds.append(preds)
+            all_labels.append(labels)
+
+    accuracy = compute_accuracy(torch.cat(all_preds), torch.cat(all_labels))
+    return accuracy
+
+
+def main(config: dict, data_dir: str):
+    """Main training loop."""
+    # Initialize wandb
+    wandb.init(config=config, project="effdl_example", name="baseline")
+
+    # Setup device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Get data
+    train_dataset, test_dataset = get_datasets(data_dir)
+
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=config["batch_size"], shuffle=True
+    )
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset, batch_size=config["batch_size"]
+    )
+
+    # Initialize model
+    model = get_model(config).to(device)
     wandb.watch(model)
 
+    # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(
+    optimizer = optim.AdamW(
         model.parameters(),
         lr=config["learning_rate"],
         weight_decay=config["weight_decay"],
     )
 
-    for epoch in trange(config["epochs"]):
-        for i, (images, labels) in enumerate(tqdm(train_loader)):
-            images = images.to(device)
-            labels = labels.to(device)
+    # Training loop
+    for epoch in trange(config["epochs"], desc="Epochs"):
+        train_loss = train_epoch(model, train_loader, criterion, optimizer, device)
+        test_acc = evaluate(model, test_loader, device)
 
-            outputs = model(images)
-            loss = criterion(outputs, labels)
+        # Log metrics
+        wandb.log({"epoch": epoch, "train_loss": train_loss, "test_acc": test_acc})
 
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-
-            if i % 100 == 0:
-                all_preds = []
-                all_labels = []
-
-                for test_images, test_labels in test_loader:
-                    test_images = test_images.to(device)
-                    test_labels = test_labels.to(device)
-
-                    with torch.inference_mode():
-                        outputs = model(test_images)
-                        preds = torch.argmax(outputs, 1)
-
-                        all_preds.append(preds)
-                        all_labels.append(test_labels)
-
-                accuracy = compute_accuracy(torch.cat(all_preds), torch.cat(all_labels))
-
-                metrics = {"test_acc": accuracy, "train_loss": loss}
-                wandb.log(
-                    metrics,
-                    step=epoch * len(train_dataset) + (i + 1) * config["batch_size"],
-                )
+    # Save model and run ID
     torch.save(model.state_dict(), "model.pt")
-
-    with open("run_id.txt", "w+") as f:
-        print(wandb.run.id, file=f)
+    Path("run_id.txt").write_text(wandb.run.id)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--data_dir",
+        type=str,
+        default="./CIFAR10",
+        help="Directory to store/load dataset",
+    )
+    args = parser.parse_args()
+
+    main(config, args.data_dir)

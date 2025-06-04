@@ -6,7 +6,7 @@ import torchvision.transforms as transforms
 from torchvision.datasets import CIFAR10
 from torchvision.models import resnet18
 
-from hparams import config
+from src.data.hparams import config
 
 
 def main(args):
@@ -21,14 +21,14 @@ def main(args):
         root="CIFAR10/test",
         train=False,
         transform=transform,
-        download=False,
+        download=True,
     )
 
     test_loader = torch.utils.data.DataLoader(
         dataset=test_dataset, batch_size=config["batch_size"]
     )
 
-    device = torch.device("cuda")
+    device = torch.device("cpu")
 
     model = resnet18(pretrained=False, num_classes=10)
     model.load_state_dict(torch.load("model.pt"))

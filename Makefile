@@ -11,3 +11,6 @@ lint:
 
 hooks:
 	poetry run pre-commit install --install-hooks
+
+install dataset:
+    python src/data/prepare_data.py --data_dir ./CIFAR10

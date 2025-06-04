@@ -40,3 +40,8 @@ cover/
 /src/wandb
 /model
 **/data/images**
+
+src/data/data/*
+src/model/CIFAR10
+src/model/wandb
+CIFAR10/*
